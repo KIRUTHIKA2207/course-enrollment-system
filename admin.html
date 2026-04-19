@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - Course Enrollment System</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="container">
+    <div class="dashboard-header">
+        <h1>Admin Dashboard</h1>
+        <button id="logout-btn" class="btn btn-danger">Logout</button>
+    </div>
+    
+    <!-- Admin Section to Add Course -->
+    <div class="section-card" id="admin-section">
+        <h2>Add New Course</h2>
+        <form id="add-course-form" class="add-course-form">
+            <div class="form-row">
+                <input type="text" id="new-course-name" placeholder="Course Name" required>
+                <input type="number" id="new-course-capacity" placeholder="Capacity" min="1" required>
+                <button type="submit" class="btn btn-secondary">Add Course</button>
+            </div>
+            <div id="add-course-msg" class="message"></div>
+        </form>
+    </div>
+
+    <!-- Section to display available courses with Search and Delete -->
+    <div class="section-card">
+        <div class="section-header-row">
+            <h2>Manage Courses</h2>
+            <input type="text" id="search-input" placeholder="Search courses..." class="search-bar">
+        </div>
+        <ul class="course-list" id="course-list">
+            <li>Loading courses...</li>
+        </ul>
+    </div>
+
+    <!-- Section to display all enrollments globally -->
+    <div class="section-card highlight-section">
+        <h2>All Global Enrollments</h2>
+        <button class="btn btn-secondary btn-sm" onclick="fetchEnrollments()">Refresh Enrollments</button>
+        <ul class="enrollment-list" id="enrollment-list">
+            <!-- Enrollments will be loaded here dynamically by JavaScript -->
+        </ul>
+    </div>
+</div>
+
+<script>
+    function handleResponse(response) {
+        if (response.status === 401 || response.status === 403) {
+            window.location.href = '/login.html';
+            throw new Error('Unauthorized');
+        }
+        return response;
+    }
+
+    async function fetchCourses(searchQuery = '') {
+        try {
+            const url = searchQuery ? `/admin/courses?search=${encodeURIComponent(searchQuery)}` : '/admin/courses';
+            const response = await fetch(url);
+            handleResponse(response);
+            const courses = await response.json();
+            
+            const courseList = document.getElementById('course-list');
+            courseList.innerHTML = ''; 
+
+            if (courses.length === 0) {
+                courseList.innerHTML = '<li>No courses found.</li>';
+                return;
+            }
+
+            courses.forEach(course => {
+                const li = document.createElement('li');
+                li.className = 'course-item';
+                
+                li.innerHTML = `
+                    <div class="course-info">
+                        <span class="course-title">${course.course_name}</span>
+                        <p class="course-stats">Enrolled: ${course.enrolled_count} / ${course.capacity}</p>
+                    </div>
+                    <button class="btn btn-danger btn-sm" onclick="deleteCourse(${course.course_id})">Delete</button>
+                `;
+                courseList.appendChild(li);
+            });
+        } catch (error) {
+            if (error.message !== 'Unauthorized') {
+                console.error('Error fetching courses:', error);
+                document.getElementById('course-list').innerHTML = '<li>Error loading courses.</li>';
+            }
+        }
+    }
+
+    async function deleteCourse(course_id) {
+        if (!confirm("Are you sure you want to delete this course and all its enrollments?")) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`/course/${course_id}`, {
+                method: 'DELETE'
+            });
+
+            handleResponse(response);
+            const result = await response.json();
+
+            if (response.ok) {
+                alert("Course deleted successfully");
+                fetchCourses(document.getElementById('search-input').value);
+                fetchEnrollments();
+            } else {
+                alert(result.error || "Failed to delete course");
+            }
+        } catch (error) {
+            if (error.message !== 'Unauthorized') {
+                console.error('Error deleting course:', error);
+                alert("Error during course deletion");
+            }
+        }
+    }
+
+    async function fetchEnrollments() {
+        try {
+            const response = await fetch('/enrollments');
+            handleResponse(response);
+            const enrollments = await response.json();
+            
+            const enrollmentList = document.getElementById('enrollment-list');
+            enrollmentList.innerHTML = '';
+
+            if (enrollments.length === 0) {
+                enrollmentList.innerHTML = '<li>No enrollments yet.</li>';
+                return;
+            }
+
+            enrollments.forEach(enrollment => {
+                const li = document.createElement('li');
+                li.className = 'enrollment-item';
+                
+                li.innerHTML = `
+                    <span class="course-title">${enrollment.course_name}</span>
+                    <span style="color: #4a5568;">Enrolled by: <strong>${enrollment.student_name}</strong></span>
+                `;
+                enrollmentList.appendChild(li);
+            });
+        } catch (error) {
+            if (error.message !== 'Unauthorized') {
+                console.error('Error fetching enrollments:', error);
+            }
+        }
+    }
+
+    document.getElementById('search-input').addEventListener('input', (e) => {
+        fetchCourses(e.target.value);
+    });
+
+    document.getElementById('add-course-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const courseName = document.getElementById('new-course-name').value;
+        const capacity = document.getElementById('new-course-capacity').value;
+        const msgDiv = document.getElementById('add-course-msg');
+
+        try {
+            const response = await fetch('/add-course', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ course_name: courseName, capacity: parseInt(capacity) })
+            });
+
+            const result = await response.json();
+
+            if (response.ok) {
+                msgDiv.innerHTML = `<span style="color: green;">${result.message}</span>`;
+                document.getElementById('add-course-form').reset();
+                fetchCourses(document.getElementById('search-input').value);
+            } else {
+                msgDiv.innerHTML = `<span style="color: red;">${result.error}</span>`;
+            }
+        } catch (error) {
+            msgDiv.innerHTML = `<span style="color: red;">Error adding course.</span>`;
+        }
+        
+        setTimeout(() => { msgDiv.innerHTML = ''; }, 3000);
+    });
+
+    document.getElementById('logout-btn').addEventListener('click', async () => {
+        try {
+            const response = await fetch('/logout', { method: 'POST' });
+            if (response.ok) {
+                window.location.href = '/login.html';
+            }
+        } catch (error) {
+            console.error('Error logging out:', error);
+        }
+    });
+
+    fetchCourses();
+    fetchEnrollments();
+</script>
+
+</body>
+</html>

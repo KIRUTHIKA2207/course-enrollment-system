@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Course Enrollment System</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="container">
+    <div class="dashboard-header">
+        <h1>Student Dashboard</h1>
+        <button id="logout-btn" class="btn btn-danger">Logout</button>
+    </div>
+
+    <!-- Section to display logged-in student's courses -->
+    <div class="section-card highlight-section">
+        <h2>My Courses</h2>
+        <ul class="course-list" id="my-course-list">
+            <li>Loading your courses...</li>
+        </ul>
+    </div>
+
+    <!-- Section to display available courses with Search -->
+    <div class="section-card">
+        <div class="section-header-row">
+            <h2>Available Courses</h2>
+            <input type="text" id="search-input" placeholder="Search courses..." class="search-bar">
+        </div>
+        <ul class="course-list" id="course-list">
+            <!-- Courses will be loaded here dynamically by JavaScript -->
+            <li>Loading courses...</li>
+        </ul>
+    </div>
+
+</div>
+
+<script>
+    let myEnrolledCourseIds = new Set();
+
+    // Handle API responses to catch 401 Unauthorized errors
+    function handleResponse(response) {
+        if (response.status === 401) {
+            // Redirect to login if unauthorized
+            window.location.href = '/login.html';
+            throw new Error('Unauthorized');
+        }
+        return response;
+    }
+
+    // Fetch courses enrolled by the logged in student
+    async function fetchMyCourses() {
+        try {
+            const response = await fetch('/my-courses');
+            handleResponse(response);
+            const myCourses = await response.json();
+            
+            const myCourseList = document.getElementById('my-course-list');
+            myCourseList.innerHTML = ''; // Clear existing items
+
+            myEnrolledCourseIds.clear();
+
+            if (myCourses.length === 0) {
+                myCourseList.innerHTML = '<li>You are not enrolled in any courses yet.</li>';
+                return;
+            }
+
+            myCourses.forEach(course => {
+                myEnrolledCourseIds.add(course.course_id);
+                const li = document.createElement('li');
+                li.className = 'course-item enrolled-item';
+                
+                li.innerHTML = `
+                    <span class="course-title">${course.course_name}</span>
+                    <span class="status-badge">Enrolled</span>
+                `;
+                myCourseList.appendChild(li);
+            });
+        } catch (error) {
+            if (error.message !== 'Unauthorized') {
+                console.error('Error fetching my courses:', error);
+                document.getElementById('my-course-list').innerHTML = '<li>Error loading your courses.</li>';
+            }
+        }
+    }
+
+    // Fetch and display all courses, optionally filtered by search query
+    async function fetchCourses(searchQuery = '') {
+        try {
+            // Wait for my courses to load first so we know what to disable
+            await fetchMyCourses();
+
+            const url = searchQuery ? `/courses?search=${encodeURIComponent(searchQuery)}` : '/courses';
+            const response = await fetch(url);
+            handleResponse(response);
+            const courses = await response.json();
+            
+            const courseList = document.getElementById('course-list');
+            courseList.innerHTML = ''; // Clear existing items
+
+            if (courses.length === 0) {
+                courseList.innerHTML = '<li>No courses found.</li>';
+                return;
+            }
+
+            courses.forEach(course => {
+                const li = document.createElement('li');
+                li.className = 'course-item';
+                
+                const isEnrolled = myEnrolledCourseIds.has(course.course_id);
+                const isFull = course.enrolled_count >= course.capacity;
+
+                let buttonHtml = '';
+                if (isEnrolled) {
+                    buttonHtml = `<button class="btn btn-disabled" disabled>Already Enrolled</button>`;
+                } else if (isFull) {
+                    buttonHtml = `<button class="btn btn-disabled" disabled>Course Full</button>`;
+                } else {
+                    buttonHtml = `<button class="btn" onclick="enrollCourse(${course.course_id})">Enroll</button>`;
+                }
+
+                li.innerHTML = `
+                    <div class="course-info">
+                        <span class="course-title">${course.course_name}</span>
+                        <p class="course-stats">Enrolled: ${course.enrolled_count} / ${course.capacity}</p>
+                    </div>
+                    ${buttonHtml}
+                `;
+                courseList.appendChild(li);
+            });
+        } catch (error) {
+            if (error.message !== 'Unauthorized') {
+                console.error('Error fetching courses:', error);
+                document.getElementById('course-list').innerHTML = '<li>Error loading courses.</li>';
+            }
+        }
+    }
+
+    // Function to handle enrolling in a course
+    async function enrollCourse(course_id) {
+        try {
+            const response = await fetch('/enroll', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ course_id: course_id })
+            });
+
+            handleResponse(response);
+            const result = await response.json();
+
+            if (response.ok) {
+                alert("Enrolled successfully");
+                // Refresh data
+                fetchCourses(document.getElementById('search-input').value);
+            } else {
+                alert(result.error || "Failed to enroll");
+            }
+        } catch (error) {
+            if (error.message !== 'Unauthorized') {
+                console.error('Error enrolling:', error);
+                alert("Error during enrollment");
+            }
+        }
+    }
+
+    // Search bar event listener
+    document.getElementById('search-input').addEventListener('input', (e) => {
+        fetchCourses(e.target.value);
+    });
+
+    // Handle logout
+    document.getElementById('logout-btn').addEventListener('click', async () => {
+        try {
+            const response = await fetch('/logout', { method: 'POST' });
+            if (response.ok) {
+                window.location.href = '/login.html';
+            }
+        } catch (error) {
+            console.error('Error logging out:', error);
+        }
+    });
+
+    // Initialize data on page load
+    fetchCourses();
+</script>
+
+</body>
+</html>
